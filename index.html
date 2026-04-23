@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Biometric & Gesture VFX Engine</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #050505;
+            color: #fff;
+            font-family: 'Courier New', Courier, monospace; /* Cyberpunk feel */
+        }
+        
+        #output_canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            transition: filter 0.3s ease-out; 
+        }
+
+        .glass-panel {
+            background: rgba(0, 5, 10, 0.8);
+            backdrop-filter: blur(15px);
+            border: 1px solid rgba(34, 211, 238, 0.3);
+            box-shadow: inset 0 0 20px rgba(34, 211, 238, 0.1);
+        }
+
+        .instruction-badge {
+            background: rgba(34, 211, 238, 0.1);
+            border: 1px solid rgba(34, 211, 238, 0.4);
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            font-size: 0.875rem;
+            margin: 0.25rem;
+            display: inline-block;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Glitch animation for text */
+        .glitch {
+            position: relative;
+            animation: shift 2s steps(2) infinite;
+        }
+        @keyframes shift {
+            0%, 40%, 44%, 58%, 61%, 65%, 69%, 73%, 100% { transform: skewX(0deg); }
+            41% { transform: skewX(10deg); }
+            42% { transform: skewX(-10deg); }
+            59% { transform: skewX(20deg) skewY(5deg); }
+            60% { transform: skewX(-20deg) skewY(-5deg); }
+            63% { transform: skewX(5deg) skewY(-2deg); }
+            70% { transform: skewX(-25deg) skewY(5deg); }
+            71% { transform: skewX(10deg) skewY(-5deg); }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- UI Overlay -->
+    <div id="ui-container" class="absolute inset-0 flex flex-col items-center justify-center z-10 transition-opacity duration-1000">
+        <div class="glass-panel p-10 rounded-xl flex flex-col items-center max-w-3xl text-center">
+            <h1 class="text-5xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500 glitch uppercase tracking-wider">
+                System Override
+            </h1>
+            <p class="text-cyan-300 text-sm mb-8 tracking-[0.3em] uppercase">
+                Dual AI Biometric & Kinematic Engine
+            </p>
+            
+            <div class="mb-8 flex flex-wrap justify-center gap-3">
+                <span class="instruction-badge">👁️ Face = Cyber HUD</span>
+                <span class="instruction-badge">✊ Fist = Black Hole</span>
+                <span class="instruction-badge">🖐️ Palm = Energy Burst</span>
+                <span class="instruction-badge">🤟 Rock On = Lightning</span>
+                <span class="instruction-badge">👍 Thumbs Up = Matrix Mode</span>
+                <span class="instruction-badge">✌️ Peace = Twin Lasers</span>
+            </div>
+            
+            <button id="start-btn" class="group relative px-8 py-4 font-bold text-black uppercase tracking-widest rounded bg-cyan-400 hover:bg-cyan-300 shadow-[0_0_20px_rgba(34,211,238,0.5)] hover:shadow-[0_0_40px_rgba(34,211,238,0.8)] transition-all duration-300">
+                <span class="relative z-10">Bypass Security Protocol</span>
+            </button>
+
+            <p id="loading-text" class="hidden mt-6 text-cyan-400 font-bold animate-pulse tracking-widest uppercase">
+                > Compiling Neural Networks... [████████░░]
+            </p>
+            <p id="error-text" class="hidden mt-6 text-red-500 font-bold uppercase tracking-widest"></p>
+        </div>
+    </div>
+
+    <!-- Hidden Video Element for Webcam Stream -->
+    <video id="webcam" autoplay playsinline class="hidden"></video>
+    
+    <!-- Canvas for rendering video and effects -->
+    <canvas id="output_canvas"></canvas>
+
+    <!-- Import MediaPipe Tasks Vision -->
+    <script type="module">
+        import {
+            GestureRecognizer,
+            FaceLandmarker,
+            FilesetResolver
+        } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0";
+
+        const video = document.getElementById("webcam");
+        const canvas = document.getElementById("output_canvas");
+        const ctx = canvas.getContext("2d", { alpha: false });
+        
+        const startBtn = document.getElementById("start-btn");
+        const uiContainer = document.getElementById("ui-container");
+        const loadingText = document.getElementById("loading-text");
+        const errorText = document.getElementById("error-text");
+
+        let gestureRecognizer, faceLandmarker;
+        let lastVideoTime = -1;
+        let scanlineY = 0; // For face scanner
+
+        // --- PARTICLE PHYSICS & TRAILS ENGINE ---
+        let particles = [];
+        let handTrails = [[], []]; // Store trails for up to 2 hands
+
+        class Particle {
+            constructor(x, y, color, vx, vy, size, type = "normal") {
+                this.x = x; this.y = y;
+                this.color = color;
+                this.vx = vx || (Math.random() - 0.5) * 15;
+                this.vy = vy || (Math.random() - 0.5) * 15;
+                this.size = size || Math.random() * 5 + 2;
+                this.life = 1.0;
+                this.decay = Math.random() * 0.03 + 0.01;
+                this.type = type;
+            }
+            update() {
+                this.x += this.vx;
+                this.y += this.vy;
+                if (this.type === "spark") {
+                    this.vy += 0.5; // Gravity effect
+                    this.size *= 0.95; // Shrink
+                }
+                this.life -= this.decay;
+            }
+            draw(ctx) {
+                ctx.beginPath();
+                ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+                ctx.fillStyle = this.color;
+                ctx.globalAlpha = Math.max(0, this.life);
+                ctx.fill();
+            }
+        }
+        
+        function spawnParticles(x, y, count, colorRange, type = "normal") {
+            for(let i=0; i<count; i++) {
+                const color = colorRange[Math.floor(Math.random() * colorRange.length)];
+                particles.push(new Particle(x, y, color, null, null, null, type));
+            }
+        }
+
+        // Draw jagged lightning between two points
+        function drawLightning(x1, y1, x2, y2, color) {
+            ctx.beginPath();
+            ctx.moveTo(x1, y1);
+            let segments = 5;
+            let currentX = x1;
+            let currentY = y1;
+            
+            for (let i = 1; i <= segments; i++) {
+                let targetX = x1 + ((x2 - x1) * (i / segments));
+                let targetY = y1 + ((y2 - y1) * (i / segments));
+                
+                // Add random jaggedness, less at the ends, more in the middle
+                let offset = (Math.random() - 0.5) * 40 * Math.sin(Math.PI * (i / segments));
+                
+                currentX = targetX + offset;
+                currentY = targetY + offset;
+                ctx.lineTo(currentX, currentY);
+            }
+            ctx.lineTo(x2, y2);
+            ctx.strokeStyle = color;
+            ctx.lineWidth = 3;
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = color;
+            ctx.stroke();
+        }
+
+        // --- 1. INITIALIZE DUAL AI MODELS ---
+        async function loadAIModels() {
+            try {
+                const vision = await FilesetResolver.forVisionTasks(
+                    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.0/wasm"
+                );
+                
+                // Load Gesture & Face in parallel for speed
+                const [gesture, face] = await Promise.all([
+                    GestureRecognizer.createFromOptions(vision, {
+                        baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/1/gesture_recognizer.task", delegate: "GPU" },
+                        runningMode: "VIDEO", numHands: 2
+                    }),
+                    FaceLandmarker.createFromOptions(vision, {
+                        baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task", delegate: "GPU" },
+                        runningMode: "VIDEO", numFaces: 1
+                    })
+                ]);
+
+                gestureRecognizer = gesture;
+                faceLandmarker = face;
+                return true;
+            } catch (err) {
+                console.error(err);
+                errorText.innerText = "> FATAL ERROR: NEURAL LINK FAILED.";
+                errorText.classList.remove("hidden");
+                return false;
+            }
+        }
+
+        // --- 2. START SEQUENCE ---
+        startBtn.addEventListener("click", async () => {
+            startBtn.classList.add("hidden");
+            loadingText.classList.remove("hidden");
+
+            if (!(await loadAIModels())) return;
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720, facingMode: "user" } });
+                video.srcObject = stream;
+                
+                video.addEventListener("loadeddata", () => {
+                    uiContainer.style.opacity = "0";
+                    setTimeout(() => uiContainer.classList.add("hidden"), 1000);
+                    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+                    predictWebcam();
+                });
+            } catch (err) {
+                errorText.innerText = "> ERROR: CAMERA SENSOR DISCONNECTED.";
+                errorText.classList.remove("hidden");
+                loadingText.classList.add("hidden");
+                startBtn.classList.remove("hidden");
+            }
+        });
+
+        // --- 3. MAIN RENDER LOOP ---
+        async function predictWebcam() {
+            if (canvas.width !== video.videoWidth) {
+                canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+            }
+
+            // Draw Base Video
+            ctx.globalAlpha = 1.0;
+            ctx.save();
+            ctx.scale(-1, 1);
+            ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+            ctx.restore();
+
+            let startTimeMs = performance.now();
+            let handResults = null, faceResults = null;
+
+            if (lastVideoTime !== video.currentTime) {
+                lastVideoTime = video.currentTime;
+                handResults = gestureRecognizer.recognizeForVideo(video, startTimeMs);
+                faceResults = faceLandmarker.detectForVideo(video, startTimeMs);
+            }
+
+            let activeFilter = "none";
+            ctx.globalCompositeOperation = "screen";
+
+            // Helper to get mirrored pixels
+            const getPx = (lm) => (1 - lm.x) * canvas.width;
+            const getPy = (lm) => lm.y * canvas.height;
+
+            // --- A. BIOMETRIC FACE HUD ---
+            if (faceResults && faceResults.faceLandmarks && faceResults.faceLandmarks.length > 0) {
+                const face = faceResults.faceLandmarks[0]; // Single face tracking
+                
+                let minX = canvas.width, minY = canvas.height, maxX = 0, maxY = 0;
+                face.forEach(lm => {
+                    const px = getPx(lm), py = getPy(lm);
+                    if(px < minX) minX = px; if(px > maxX) maxX = px;
+                    if(py < minY) minY = py; if(py > maxY) maxY = py;
+                });
+
+                // Draw Cyber Targeting Box
+                const pad = 20;
+                const len = 40;
+                ctx.strokeStyle = "rgba(34, 211, 238, 0.8)"; // Cyan
+                ctx.lineWidth = 3;
+                ctx.shadowBlur = 10; ctx.shadowColor = "#22d3ee";
+
+                ctx.beginPath();
+                // Top Left
+                ctx.moveTo(minX-pad, minY-pad+len); ctx.lineTo(minX-pad, minY-pad); ctx.lineTo(minX-pad+len, minY-pad);
+                // Top Right
+                ctx.moveTo(maxX+pad-len, minY-pad); ctx.lineTo(maxX+pad, minY-pad); ctx.lineTo(maxX+pad, minY-pad+len);
+                // Bottom Right
+                ctx.moveTo(maxX+pad, maxY+pad-len); ctx.lineTo(maxX+pad, maxY+pad); ctx.lineTo(maxX+pad-len, maxY+pad);
+                // Bottom Left
+                ctx.moveTo(minX-pad+len, maxY+pad); ctx.lineTo(minX-pad, maxY+pad); ctx.lineTo(minX-pad, maxY+pad-len);
+                ctx.stroke();
+
+                // Scanning Line Animation
+                scanlineY += 5;
+                if(scanlineY > maxY - minY) scanlineY = 0;
+                ctx.beginPath();
+                ctx.moveTo(minX - pad, minY - pad + scanlineY);
+                ctx.lineTo(maxX + pad, minY - pad + scanlineY);
+                ctx.strokeStyle = "rgba(34, 211, 238, 0.5)";
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Eye Lock-ons (Approximate centers: 468 left, 473 right)
+                const leftEye = { x: getPx(face[468]), y: getPy(face[468]) };
+                const rightEye = { x: getPx(face[473]), y: getPy(face[473]) };
+                
+                ctx.strokeStyle = "rgba(236, 72, 153, 0.8)"; // Pink
+                ctx.beginPath(); ctx.arc(leftEye.x, leftEye.y, 10, 0, Math.PI*2); ctx.stroke();
+                ctx.beginPath(); ctx.arc(rightEye.x, rightEye.y, 10, 0, Math.PI*2); ctx.stroke();
+                
+                // Tech overlay text
+                ctx.fillStyle = "rgba(34, 211, 238, 0.9)";
+                ctx.font = "14px Courier New";
+                ctx.fillText(`ID: SUBJECT_ALPHA`, maxX + pad + 10, minY);
+                ctx.fillText(`SYS: ${Math.floor(performance.now() % 10000)}`, maxX + pad + 10, minY + 20);
+            }
+
+            // --- B. GESTURE VFX & PHYSICS ---
+            if (handResults && handResults.landmarks && handResults.landmarks.length > 0) {
+                for (let i = 0; i < handResults.landmarks.length; i++) {
+                    const landmarks = handResults.landmarks[i];
+                    const gesture = handResults.gestures[i][0].categoryName; 
+
+                    const thumb = { x: getPx(landmarks[4]), y: getPy(landmarks[4]) };
+                    const index = { x: getPx(landmarks[8]), y: getPy(landmarks[8]) };
+                    const middle = { x: getPx(landmarks[12]), y: getPy(landmarks[12]) };
+                    const ring = { x: getPx(landmarks[16]), y: getPy(landmarks[16]) };
+                    const pinky = { x: getPx(landmarks[20]), y: getPy(landmarks[20]) };
+                    
+                    const palmX = (getPx(landmarks[0]) + getPx(landmarks[9])) / 2;
+                    const palmY = (getPy(landmarks[0]) + getPy(landmarks[9])) / 2;
+
+                    // Hand Trails
+                    handTrails[i].push({x: palmX, y: palmY});
+                    if(handTrails[i].length > 15) handTrails[i].shift();
+                    
+                    ctx.beginPath();
+                    for(let j=0; j<handTrails[i].length; j++) {
+                        if(j===0) ctx.moveTo(handTrails[i][j].x, handTrails[i][j].y);
+                        else ctx.lineTo(handTrails[i][j].x, handTrails[i][j].y);
+                    }
+                    ctx.strokeStyle = `rgba(168, 85, 247, 0.4)`;
+                    ctx.lineWidth = 15;
+                    ctx.lineCap = "round";
+                    ctx.shadowBlur = 20; ctx.shadowColor = "purple";
+                    ctx.stroke();
+
+                    // --- EFFECT 1: FIST (Black Hole Vector Field) ---
+                    if (gesture === "Closed_Fist") {
+                        activeFilter = "invert(1) hue-rotate(180deg) contrast(200%)";
+                        
+                        ctx.beginPath();
+                        ctx.arc(palmX, palmY, 50, 0, Math.PI * 2);
+                        ctx.fillStyle = "#000";
+                        ctx.shadowBlur = 80; ctx.shadowColor = "#ec4899";
+                        ctx.fill();
+
+                        // Gravity Pull on particles
+                        particles.forEach(p => {
+                            const dx = palmX - p.x, dy = palmY - p.y;
+                            const dist = Math.hypot(dx, dy);
+                            if(dist > 5) { p.vx += (dx/dist)*3; p.vy += (dy/dist)*3; }
+                        });
+                    } 
+                    
+                    // --- EFFECT 2: OPEN PALM (Spark Emitter) ---
+                    else if (gesture === "Open_Palm") {
+                        activeFilter = "saturate(250%) contrast(120%)";
+                        [thumb, index, middle, ring, pinky].forEach(tip => {
+                            spawnParticles(tip.x, tip.y, 2, ["#fbbf24", "#f97316", "#ffffff"], "spark");
+                        });
+                        
+                        ctx.beginPath();
+                        ctx.arc(palmX, palmY, 80, 0, Math.PI * 2);
+                        ctx.strokeStyle = "rgba(251, 191, 36, 0.2)";
+                        ctx.lineWidth = 20;
+                        ctx.stroke();
+                    }
+
+                    // --- EFFECT 3: ILoveYou (Lightning Chains) ---
+                    else if (gesture === "ILoveYou") {
+                        activeFilter = "sepia(50%) hue-rotate(200deg) saturate(300%)";
+                        
+                        // Shoot lightning from thumb, index, and pinky to random screen edges
+                        const edges = [
+                            {x: 0, y: Math.random()*canvas.height}, 
+                            {x: canvas.width, y: Math.random()*canvas.height},
+                            {x: Math.random()*canvas.width, y: 0}
+                        ];
+                        
+                        drawLightning(index.x, index.y, edges[0].x, edges[0].y, "#3b82f6");
+                        drawLightning(pinky.x, pinky.y, edges[1].x, edges[1].y, "#8b5cf6");
+                        drawLightning(thumb.x, thumb.y, edges[2].x, edges[2].y, "#06b6d4");
+                        
+                        spawnParticles(index.x, index.y, 3, ["#3b82f6", "#ffffff"]);
+                        spawnParticles(pinky.x, pinky.y, 3, ["#8b5cf6", "#ffffff"]);
+                    }
+
+                    // --- EFFECT 4: THUMBS UP (Matrix Overdrive) ---
+                    else if (gesture === "Thumb_Up") {
+                        activeFilter = "hue-rotate(90deg) saturate(300%) contrast(150%) brightness(1.2)"; // Turns reds/blues to intense greens
+                        
+                        ctx.beginPath();
+                        ctx.arc(thumb.x, thumb.y, 100 + Math.random()*20, 0, Math.PI*2);
+                        ctx.fillStyle = "rgba(34, 197, 94, 0.3)";
+                        ctx.shadowBlur = 100; ctx.shadowColor = "#22c55e";
+                        ctx.fill();
+
+                        // Matrix rain dots falling from thumb
+                        spawnParticles(thumb.x + (Math.random()-0.5)*100, thumb.y, 5, ["#22c55e", "#4ade80"], "normal");
+                    }
+
+                    // --- EFFECT 5: PEACE (Lasers) ---
+                    else if (gesture === "Victory") {
+                        ctx.shadowBlur = 40; ctx.shadowColor = "#f43f5e";
+                        ctx.strokeStyle = "rgba(255, 255, 255, 1)";
+                        ctx.lineWidth = 10;
+
+                        ctx.beginPath(); ctx.moveTo(index.x, index.y); ctx.lineTo(index.x + (Math.random()-0.5)*20, -100); ctx.stroke();
+                        ctx.beginPath(); ctx.moveTo(middle.x, middle.y); ctx.lineTo(middle.x + (Math.random()-0.5)*20, -100); ctx.stroke();
+                    }
+
+                    // --- EFFECT 6: PINCH/DEFAULT (Energy Orb) ---
+                    else {
+                        const dist = Math.hypot(index.x - thumb.x, index.y - thumb.y);
+                        const midX = thumb.x + (index.x - thumb.x) / 2;
+                        const midY = thumb.y + (index.y - thumb.y) / 2;
+
+                        ctx.beginPath();
+                        ctx.moveTo(thumb.x, thumb.y); ctx.lineTo(index.x, index.y);
+                        ctx.strokeStyle = `rgba(34, 211, 238, ${Math.min(1, dist/100)})`;
+                        ctx.lineWidth = 4; ctx.shadowBlur = 30; ctx.shadowColor = "cyan"; ctx.stroke();
+
+                        ctx.beginPath(); ctx.arc(midX, midY, dist/2.5, 0, 2*Math.PI);
+                        ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+                        ctx.fill();
+                        
+                        if(dist > 50 && Math.random() > 0.5) spawnParticles(midX, midY, 1, ["#22d3ee", "#a855f7"]);
+                    }
+                }
+            } else {
+                // Clear trails if no hands
+                handTrails = [[], []];
+            }
+
+            // --- C. UPDATE & RENDER PARTICLES ---
+            ctx.shadowBlur = 0; 
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.update();
+                p.draw(ctx);
+                if (p.life <= 0) particles.splice(i, 1);
+            }
+            if(particles.length > 800) particles.splice(0, particles.length - 800); // Prevent memory leaks
+
+            // --- D. APPLY CANVAS EFFECTS ---
+            ctx.globalCompositeOperation = "source-over";
+            canvas.style.filter = activeFilter !== "none" ? activeFilter : "none";
+
+            window.requestAnimationFrame(predictWebcam);
+        }
+
+        window.addEventListener('resize', () => {
+            // Handled dynamically in render loop
+        });
+    </script>
+</body>
+</html>
